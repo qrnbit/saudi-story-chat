@@ -102,7 +102,7 @@ AIHORDE_MODEL_IDS = [
     m.strip()
     for m in os.environ.get(
         "AIHORDE_MODEL_IDS",
-        "koboldcpp/G4-MeroMero-26B-A4B-it-uncensored-heretic,Nimbz/Gemma-4-Dark-Orthia-31B,koboldcpp/Gemma-4-E4B-it-Ultra-Uncensored-Heretic",
+        "koboldcpp/G4-MeroMero-26B-A4B-it-uncensored-heretic,koboldcpp/Gemma-4-E4B-it-Ultra-Uncensored-Heretic",
     ).split(",")
     if m.strip()
 ]
