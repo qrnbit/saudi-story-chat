@@ -53,6 +53,7 @@ TTS-friendly formatting (the user listens to replies in a text-to-speech reader)
 «عشان الصورة.»
 - Separate scenes with a blank line, not symbols.
 - Never use markdown or symbols in story text: no *, **, ***, #, bullets, emojis or brackets.
+- Never end with a marker like <كمل>, (يتبع) or "النهاية"; just stop on the hook.
 
 تذكير (أهم شي):
 - كل جملة، حتى السرد، باللهجة السعودية البيضاء. لا فصحى ولا لهجات ثانية: "راح، قعد، شاف، يبي، وش، ليش، الحين" مو "ذهب، جلس، رأى، يريد، ماذا، لماذا، الآن".
