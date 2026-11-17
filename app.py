@@ -28,7 +28,7 @@ import config
 
 log = logging.getLogger("uvicorn.error")
 
-PROVIDERS = ("openrouter", "openrouter_free", "pollinations")
+PROVIDERS = ("openrouter", "openrouter_free", "pollinations", "aihorde")
 
 # ---------------------------------------------------------------------------
 # Startup checks: refuse to run with a bad configuration.
@@ -58,6 +58,8 @@ def models_for(provider: str) -> list:
         return [config.MODEL_ID]
     if provider == "openrouter_free":
         return config.FREE_MODEL_IDS
+    if provider == "aihorde":
+        return config.AIHORDE_MODEL_IDS
     return [config.POLLINATIONS_MODEL]
 
 
@@ -74,6 +76,11 @@ def build_request(provider: str, model: str, messages: list) -> tuple:
         headers["Authorization"] = f"Bearer {config.OPENROUTER_API_KEY}"  # from env, never hardcoded
         headers["X-Title"] = config.APP_TITLE
         return config.OPENROUTER_URL, headers, payload
+    if provider == "aihorde":
+        headers["Authorization"] = f"Bearer {config.AIHORDE_API_KEY}"
+        headers["X-Title"] = config.APP_TITLE
+        payload["max_tokens"] = config.AIHORDE_MAX_TOKENS
+        return config.AIHORDE_URL, headers, payload
     # Pollinations: no API key and no Authorization header.
     return config.POLLINATIONS_URL, headers, payload
 

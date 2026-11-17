@@ -53,7 +53,7 @@ FALLBACK_TO_POLLINATIONS = os.environ.get("FALLBACK_TO_POLLINATIONS", "true").st
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.9"))  # higher = more creative
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))     # long stories need more
 MAX_HISTORY_MESSAGES = 30   # how many past messages are sent back to the model
-REQUEST_TIMEOUT_SECONDS = 180
+REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "300"))
 RATE_LIMIT = "20/minute"    # max /chat requests per IP
 
 # ---------------------------------------------------------------------------
@@ -88,4 +88,19 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # ---------------------------------------------------------------------------
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
+
+# AI Horde (free volunteer GPUs, allows adult fiction between adults).
+# PROVIDER = "aihorde". Anonymous key 0000000000 works; a free key from
+# https://aihorde.net/register gives better queue priority (set AIHORDE_API_KEY).
+AIHORDE_URL = "https://oai.aihorde.net/v1/chat/completions"
+AIHORDE_API_KEY = os.environ.get("AIHORDE_API_KEY", "").strip() or "0000000000"
+AIHORDE_MODEL_IDS = [
+    m.strip()
+    for m in os.environ.get(
+        "AIHORDE_MODEL_IDS",
+        "koboldcpp/G4-MeroMero-26B-A4B-it-uncensored-heretic,Nimbz/Gemma-4-Dark-Orthia-31B,koboldcpp/Gemma-4-E4B-it-Ultra-Uncensored-Heretic",
+    ).split(",")
+    if m.strip()
+]
+AIHORDE_MAX_TOKENS = int(os.environ.get("AIHORDE_MAX_TOKENS", "1024"))
 APP_TITLE = "Saudi Story Chat"
