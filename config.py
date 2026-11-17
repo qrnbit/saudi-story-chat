@@ -55,6 +55,9 @@ MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))     # long stories need m
 MAX_HISTORY_MESSAGES = 30   # how many past messages are sent back to the model
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "300"))
 RATE_LIMIT = "20/minute"    # max /chat requests per IP
+JOB_POLL_RATE_LIMIT = "120/minute"  # GET/DELETE /jobs/{id} per IP (UI polls every ~3s)
+JOB_TTL_SECONDS = int(os.environ.get("JOB_TTL_SECONDS", "3600"))  # finished jobs kept 1 hour
+MAX_JOBS = int(os.environ.get("MAX_JOBS", "200"))  # in-memory cap
 AUTH_RATE_LIMIT = "30/minute"  # max /auth (PIN lock) attempts per IP
 
 # ---------------------------------------------------------------------------

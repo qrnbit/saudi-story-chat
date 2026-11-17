@@ -141,7 +141,7 @@ const app=$('app'), lock=$('lock'), log=$('log'), t=$('t'), send=$('send');
 const SEND_ICON = send.innerHTML;
 let messages = JSON.parse(localStorage.getItem('chat') || '[]');
 let password = sessionStorage.getItem('pw') || '';
-let PIN_LEN = 5, busy = false, controller = null;
+let PIN_LEN = 5, busy = false;
 
 /* ---------- Keep the layout above the iOS keyboard ---------- */
 function fitViewport(){
@@ -198,9 +198,9 @@ async function checkPin(){
 function showLock(msg){
   password=''; sessionStorage.removeItem('pw'); pin=''; drawDots();
   $('lockMsg').textContent = msg||''; $('lockMsg').classList.toggle('bad', !!msg);
-  app.classList.add('hidden'); lock.classList.remove('hidden'); t.blur();
+  stopPoll(); app.classList.add('hidden'); lock.classList.remove('hidden'); t.blur();
 }
-function unlock(){ pin=''; lock.classList.add('hidden'); app.classList.remove('hidden'); fitViewport(); render(); }
+function unlock(){ pin=''; lock.classList.add('hidden'); app.classList.remove('hidden'); fitViewport(); render(); resume(); }
 $('lockBtn').onclick = ()=>showLock();
 
 /* ---------- Messages ---------- */
@@ -235,14 +235,25 @@ function emptyState(){
     log.querySelector('.chips').appendChild(b);
   });
 }
-function render(){ log.innerHTML=''; if(!messages.length) emptyState(); else messages.forEach(m=>bubble(m.role,m.content)); scrollDown(); }
+function render(){ if(wait){ wait.remove(); wait=null; } log.innerHTML=''; if(!messages.length) emptyState(); else messages.forEach(m=>bubble(m.role,m.content)); scrollDown(); }
 
-function typing(){
+/* ---------- Background jobs ----------
+   The server generates the story as a background job, so leaving Safari
+   (switching apps / locking the phone) doesn't kill it. The pending job_id is
+   kept in localStorage with the user's message; we poll and resume on return. */
+const PKEY='pendingJob', BASE_TITLE=document.title;
+let pending = JSON.parse(localStorage.getItem(PKEY) || 'null');   // {id, text, started}
+let wait=null, pollTimer=null, polling=false;
+function savePending(){ pending ? localStorage.setItem(PKEY, JSON.stringify(pending)) : localStorage.removeItem(PKEY); }
+function api(path, opts){ opts=opts||{}; return fetch(path, Object.assign({}, opts, {headers:{'Content-Type':'application/json','X-App-Password':password}})); }
+
+function typing(started){
   const d=document.createElement('div'); d.className='typing';
-  d.innerHTML='<div class="row"><span class="dots"><i></i><i></i><i></i></span><span>يكتب... <span class="sec">0</span> ث</span></div><div class="hint">القصص الطويلة تاخذ عادة من نص دقيقة لدقيقتين، خلك معي.</div>';
+  d.innerHTML='<div class="row"><span class="dots"><i></i><i></i><i></i></span><span>يكتب... <span class="sec">0</span> ث</span></div><div class="hint">القصص الطويلة تاخذ عادة من نص دقيقة لدقيقتين. تقدر تطلع من سفاري، القصة تنكتب على السيرفر وتلقاها لما ترجع.</div>';
   log.appendChild(d); scrollDown(true);
-  const start=Date.now(); const iv=setInterval(()=>{ const s=Math.round((Date.now()-start)/1000); d.querySelector('.sec').textContent=s;
-    if(s===150) d.querySelector('.hint').textContent='الطابور زحمة شوي، باقي شوي إن شاء الله...'; },1000);
+  const tick=()=>{ const s=Math.max(0,Math.round((Date.now()-started)/1000)); d.querySelector('.sec').textContent=s;
+    if(s>=150) d.querySelector('.hint').textContent='الطابور زحمة شوي، باقي شوي إن شاء الله...'; };
+  tick(); const iv=setInterval(tick,1000);
   return {remove(){ clearInterval(iv); d.remove(); }};
 }
 function setBusy(b){
@@ -250,32 +261,82 @@ function setBusy(b){
   send.classList.toggle('stop', b); send.setAttribute('aria-label', b?'إيقاف':'إرسال');
   send.innerHTML = b ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' : SEND_ICON;
 }
+function stopPoll(){ clearTimeout(pollTimer); pollTimer=null; }
+function schedulePoll(ms){ stopPoll(); if(pending) pollTimer=setTimeout(poll, ms); }
 
 async function submit(text){
   text = (text||'').trim(); if(!text || busy) return;
   if(!messages.length) log.innerHTML='';
   messages.push({role:'user',content:text}); bubble('user',text); save(); scrollDown(true);
-  setBusy(true); const wait = typing(); controller = new AbortController();
+  const started = Date.now();
+  setBusy(true); wait = typing(started);
   try{
-    const r = await fetch('chat',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json','X-App-Password':password},body:JSON.stringify({messages})});
+    const r = await api('jobs',{method:'POST',body:JSON.stringify({messages})});
     const data = await r.json().catch(()=>({}));
     if(!r.ok){
-      if(r.status===401){ wait.remove(); messages.pop(); save(); setBusy(false); showLock('انتهت الجلسة، أدخل الرمز من جديد'); return; }
+      if(r.status===401) return fail(text,null,'lock');
       if(r.status===429) throw new Error('طلبات كثيرة، استنى دقيقة وجرّب');
       throw new Error((typeof data.detail==='string' && data.detail) || data.error || ('HTTP '+r.status));
     }
-    wait.remove();
-    messages.push({role:'assistant',content:data.reply}); save();
-    const b = bubble('assistant',data.reply);
-    if(data.fallback_used) sysLine('note','المزود الأساسي ما رد، فجاوب Pollinations بداله.');
-    requestAnimationFrame(()=>log.scrollTo({top:b.offsetTop-10,behavior:'smooth'}));
-  }catch(err){
-    wait.remove(); messages.pop(); save();
-    if(err.name==='AbortError') sysLine('note','وقّفت الطلب.');
-    else sysLine('error','صار خطأ: '+err.message, ()=>submit(text));
-    if(!t.value) { t.value=text; grow(); }
-  }finally{ setBusy(false); controller=null; }
+    if(!busy){ api('jobs/'+encodeURIComponent(data.job_id),{method:'DELETE'}).catch(()=>{}); return; } // stopped meanwhile
+    pending = {id:data.job_id, text, started}; savePending();
+    schedulePoll(3000);
+  }catch(err){ if(busy) fail(text, err.message); }
 }
+
+async function poll(){
+  stopPoll(); if(!pending || polling || !password) return;
+  polling=true; const id=pending.id;
+  try{
+    const r = await api('jobs/'+encodeURIComponent(id));
+    const data = await r.json().catch(()=>({}));
+    if(!pending || pending.id!==id) return;
+    if(r.status===401) return fail(pending.text,null,'lock');
+    if(r.status===404) return fail(pending.text,'انقطع الطلب (السيرفر أعاد التشغيل أو انتهت صلاحيته)، جرّب مرة ثانية');
+    if(!r.ok || data.status==='pending'){ schedulePoll(document.hidden ? 10000 : 3000); return; }
+    if(data.status==='error') return fail(pending.text, data.error || 'خطأ غير معروف');
+    finish(data);
+  }catch(e){ schedulePoll(document.hidden ? 10000 : 4000); }  // network hiccup, e.g. Safari waking up
+  finally{ polling=false; }
+}
+
+function finish(data){
+  stopPoll(); if(wait){ wait.remove(); wait=null; }
+  pending=null; savePending();
+  messages.push({role:'assistant',content:data.reply}); save();
+  const b = bubble('assistant',data.reply);
+  if(data.fallback_used) sysLine('note','المزود الأساسي ما رد، فجاوب Pollinations بداله.');
+  setBusy(false);
+  if(document.hidden) document.title='✅ القصة جاهزة';
+  requestAnimationFrame(()=>log.scrollTo({top:b.offsetTop-10,behavior:'smooth'}));
+}
+
+function fail(text, msg, kind){
+  stopPoll(); if(wait){ wait.remove(); wait=null; }
+  pending=null; savePending();
+  if(messages.length && messages[messages.length-1].role==='user'){ messages.pop(); save(); }
+  setBusy(false); render();
+  if(kind==='lock'){ showLock('انتهت الجلسة، أدخل الرمز من جديد'); }
+  else if(kind==='cancel') sysLine('note','وقّفت الطلب.');
+  else sysLine('error','صار خطأ: '+msg, ()=>submit(text));
+  if(text && !t.value){ t.value=text; grow(); }
+}
+
+function cancel(){
+  const p=pending;
+  if(p) api('jobs/'+encodeURIComponent(p.id),{method:'DELETE'}).catch(()=>{});
+  const last = messages.length && messages[messages.length-1];
+  fail(p ? p.text : (last && last.role==='user' ? last.content : ''), null, 'cancel');
+}
+
+function resume(){
+  if(!pending || !password || !lock.classList.contains('hidden')) return;
+  if(!wait) wait = typing(pending.started);
+  setBusy(true); poll();
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ document.title=BASE_TITLE; resume(); } });
+window.addEventListener('pageshow', resume);
+window.addEventListener('focus', resume);
 
 function grow(){ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,160)+'px'; }
 t.addEventListener('input', grow);
@@ -285,7 +346,7 @@ t.addEventListener('keydown', e=>{ if(!touch && e.key==='Enter' && !e.shiftKey){
 t.addEventListener('focus', ()=>setTimeout(()=>{fitViewport();scrollDown();},300));
 $('f').addEventListener('submit', e=>{
   e.preventDefault();
-  if(busy){ if(controller) controller.abort(); return; }
+  if(busy){ cancel(); return; }
   const v=t.value; t.value=''; grow(); submit(v);
 });
 $('cont').onclick = ()=>submit('كمل');
