@@ -16,11 +16,15 @@ Model-agnostic chat UI (FastAPI) that talks to OpenRouter, with a Saudi-dialect 
   - `openrouter` (default): OpenRouter with `MODEL_ID` (paid or free).
   - `openrouter_free`: OpenRouter, trying each `:free` model in `FREE_MODEL_IDS` (comma-separated) in order; no credit needed.
   - `pollinations`: Pollinations.ai, free, no API key.
+  - `aihorde` (current live setup): AI Horde volunteer GPUs, free, no card. Models in `AIHORDE_MODEL_IDS` (comma list, tried in order), optional free `AIHORDE_API_KEY` for faster queue, `AIHORDE_PRESENCE_PENALTY` (default 0.4, anti-repetition; the only penalty AI Horde accepts, auto-dropped if no worker supports it). Replies take ~30-120 s.
 - Automatic fallback: if the main provider fails (for `openrouter_free`: if every model in the list fails) (429, server error, timeout, empty reply), the request is retried on Pollinations. Turn off with `FALLBACK_TO_POLLINATIONS=false`.
 - Edit the persona in `system_prompt.txt`, or override it with a `SYSTEM_PROMPT` Space variable. The same prompt goes to every provider.
 - Required secrets: `APP_PASSWORD` always, and `OPENROUTER_API_KEY` for `openrouter` / `openrouter_free`. The server refuses to start without them.
 - `/chat` is password-protected (`X-App-Password` header) and limited to 20 requests per minute per IP (429 when exceeded).
 - `/health` returns `OK` for UptimeRobot.
+- `POST /auth` checks a PIN from the lock screen (200/401, 30/min per IP). The UI is an iPhone-style PIN lock: the PIN (= `APP_PASSWORD`) is never in the page; each attempt is verified by `/auth`. By the owner's request, the correct PIN must be entered 4 times (the first 3 correct entries show "wrong"; wrong PINs don't count). The count is in sessionStorage; the session locks again when Safari's tab/session ends or on a 401.
+- The UI is mobile-first for iPhone Safari (safe areas, keyboard-aware layout, add-to-home-screen icon) and keeps chat history in localStorage.
+- Hosting: Render free web service (Docker), auto-deploys from GitHub `main`. Settings: Render dashboard -> service -> Environment.
 
 ## ⚠️ OpenRouter limits / حدود OpenRouter
 

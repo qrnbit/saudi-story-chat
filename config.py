@@ -50,11 +50,12 @@ FALLBACK_TO_POLLINATIONS = os.environ.get("FALLBACK_TO_POLLINATIONS", "true").st
 # ---------------------------------------------------------------------------
 # 3) GENERATION SETTINGS
 # ---------------------------------------------------------------------------
-TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.9"))  # higher = more creative
+TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.95"))  # higher = more creative
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))     # long stories need more
 MAX_HISTORY_MESSAGES = 30   # how many past messages are sent back to the model
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "300"))
 RATE_LIMIT = "20/minute"    # max /chat requests per IP
+AUTH_RATE_LIMIT = "30/minute"  # max /auth (PIN lock) attempts per IP
 
 # ---------------------------------------------------------------------------
 # 4) SYSTEM PROMPT  <-- EDIT THE PERSONA IN system_prompt.txt
@@ -102,5 +103,7 @@ AIHORDE_MODEL_IDS = [
     ).split(",")
     if m.strip()
 ]
+# Anti-repetition (0 = off). Only presence_penalty is accepted by AI Horde.
+AIHORDE_PRESENCE_PENALTY = float(os.environ.get("AIHORDE_PRESENCE_PENALTY", "0.4"))
 AIHORDE_MAX_TOKENS = int(os.environ.get("AIHORDE_MAX_TOKENS", "1024"))
 APP_TITLE = "Saudi Story Chat"

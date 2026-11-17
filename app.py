@@ -5,6 +5,7 @@ Routes:
   GET  /        -> the chat UI (static/index.html)
   GET  /health  -> 200 OK, for UptimeRobot pings (keeps the Space awake)
   GET  /info    -> active provider/model (shown in the UI header)
+  POST /auth    -> checks a PIN from the lock screen (200 / 401), rate-limited
   POST /chat    -> sends the conversation + system prompt to the active provider,
                    falling back to Pollinations if it fails (see config.py)
                    Requires the X-App-Password header; max 20 requests/min per IP.
@@ -63,7 +64,7 @@ def models_for(provider: str) -> list:
     return [config.POLLINATIONS_MODEL]
 
 
-def build_request(provider: str, model: str, messages: list) -> tuple:
+def build_request(provider: str, model: str, messages: list, use_penalty: bool = True) -> tuple:
     """Return (url, headers, payload). The same SYSTEM_PROMPT goes to every provider."""
     payload = {
         "model": model,
@@ -80,6 +81,11 @@ def build_request(provider: str, model: str, messages: list) -> tuple:
         headers["Authorization"] = f"Bearer {config.AIHORDE_API_KEY}"
         headers["X-Title"] = config.APP_TITLE
         payload["max_tokens"] = config.AIHORDE_MAX_TOKENS
+        # presence_penalty is the only anti-repetition knob AI Horde's OpenAI endpoint
+        # accepts (frequency/repetition penalties are rejected). Some workers don't
+        # support it, so call_model retries without it if no worker can serve it.
+        if use_penalty and config.AIHORDE_PRESENCE_PENALTY:
+            payload["presence_penalty"] = config.AIHORDE_PRESENCE_PENALTY
         return config.AIHORDE_URL, headers, payload
     # Pollinations: no API key and no Authorization header.
     return config.POLLINATIONS_URL, headers, payload
@@ -93,7 +99,17 @@ class ProviderError(Exception):
 
 async def call_model(client: httpx.AsyncClient, provider: str, model: str, messages: list) -> dict:
     """Call one model on one provider; return {"reply", "model"} or raise ProviderError."""
-    url, headers, payload = build_request(provider, model, messages)
+    try:
+        return await _call_model(client, provider, model, messages, True)
+    except ProviderError as e:
+        if provider == "aihorde" and config.AIHORDE_PRESENCE_PENALTY and "declares" in str(e):
+            log.warning("Retrying %s without presence_penalty: %s", model, e)
+            return await _call_model(client, provider, model, messages, False)
+        raise
+
+
+async def _call_model(client, provider, model, messages, use_penalty) -> dict:
+    url, headers, payload = build_request(provider, model, messages, use_penalty)
     try:
         r = await client.post(url, json=payload, headers=headers)
     except httpx.TimeoutException:
@@ -157,6 +173,15 @@ class ChatRequest(BaseModel):
     messages: List[Message]
 
 
+class AuthRequest(BaseModel):
+    pin: str
+
+
+def password_ok(value: Optional[str]) -> bool:
+    """Constant-time compare with APP_PASSWORD."""
+    return bool(value) and hmac.compare_digest(value.encode(), config.APP_PASSWORD.encode())
+
+
 @app.get("/")
 def index():
     return FileResponse("static/index.html")
@@ -174,7 +199,18 @@ def info():
         "provider": config.PROVIDER,
         "model": ", ".join(models_for(config.PROVIDER)),
         "fallback": config.FALLBACK_TO_POLLINATIONS and config.PROVIDER != "pollinations",
+        "pin_length": len(config.APP_PASSWORD),  # number of dots on the lock screen
     }
+
+
+@app.post("/auth")
+@limiter.limit(config.AUTH_RATE_LIMIT)
+async def auth(request: Request, req: AuthRequest):
+    # Used by the PIN lock screen. The PIN itself is never sent to the browser;
+    # each attempt is checked here. (The "enter it 4 times" logic is client-side.)
+    if not password_ok(req.pin):
+        raise HTTPException(status_code=401, detail="Wrong PIN")
+    return {"ok": True}
 
 
 @app.post("/chat")
@@ -185,9 +221,7 @@ async def chat(
     x_app_password: Optional[str] = Header(default=None),
 ):
     # Password is checked on the server for every request (constant-time compare).
-    if not x_app_password or not hmac.compare_digest(
-        x_app_password.encode(), config.APP_PASSWORD.encode()
-    ):
+    if not password_ok(x_app_password):
         raise HTTPException(status_code=401, detail="Wrong password")
     if not req.messages:
         raise HTTPException(status_code=400, detail="No messages")
